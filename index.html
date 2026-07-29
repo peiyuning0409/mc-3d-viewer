@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Minecraft 3D 全方块查看器</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { 
+    background:linear-gradient(135deg, #0a0a1a 0%, #0d1b2a 30%, #1b2838 60%, #0a0a1a 100%);
+    color:#e0e0e0; font-family:'Microsoft YaHei','PingFang SC',sans-serif;
+    overflow:hidden; height:100vh; display:flex;
+}
+#sidebar { 
+    width:320px; background:rgba(10,10,26,0.85); backdrop-filter:blur(20px);
+    border-right:1px solid rgba(100,150,255,0.15); display:flex; flex-direction:column;
+    z-index:10; overflow:hidden;
+}
+#sidebar-header {
+    padding:16px; border-bottom:1px solid rgba(100,150,255,0.15);
+    text-align:center;
+}
+#sidebar-header h1 {
+    font-size:20px; background:linear-gradient(135deg,#64b5f6,#42a5f5,#1e88e5);
+    -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+    letter-spacing:2px; margin-bottom:4px;
+}
+#sidebar-header p { font-size:11px; color:#668; }
+#search-box {
+    margin:12px; padding:10px 14px; background:rgba(255,255,255,0.05);
+    border:1px solid rgba(100,150,255,0.2); border-radius:8px;
+    color:#e0e0e0; font-size:14px; outline:none; transition:all .3s;
+}
+#search-box:focus { border-color:rgba(100,150,255,0.5); background:rgba(255,255,255,0.08); }
+#category-tabs {
+    display:flex; flex-wrap:wrap; gap:4px; padding:0 12px 8px;
+}
+.cat-tab {
+    padding:5px 10px; border-radius:6px; font-size:11px; cursor:pointer;
+    background:rgba(255,255,255,0.04); border:1px solid rgba(100,150,255,0.1);
+    color:#aab; transition:all .2s; white-space:nowrap;
+}
+.cat-tab:hover,.cat-tab.active { 
+    background:rgba(66,165,245,0.2); border-color:rgba(66,165,245,0.4); color:#fff;
+}
+#block-list { flex:1; overflow-y:auto; padding:0 8px; }
+.block-item {
+    display:flex; align-items:center; padding:8px 12px; margin:2px 0;
+    border-radius:6px; cursor:pointer; transition:all .15s;
+    border:1px solid transparent; font-size:13px;
+}
+.block-item:hover { background:rgba(66,165,245,0.1); border-color:rgba(66,165,245,0.2); }
+.block-item.selected { 
+    background:rgba(66,165,245,0.2); border-color:rgba(66,165,245,0.4); color:#fff;
+}
+.block-color { 
+    width:20px; height:20px; border-radius:3px; margin-right:10px;
+    flex-shrink:0; box-shadow:0 0 6px rgba(0,0,0,0.3);
+}
+#main-view { flex:1; position:relative; }
+#canvas-container { width:100%; height:100%; }
+#info-panel {
+    position:absolute; bottom:20px; left:50%; transform:translateX(-50%);
+    background:rgba(10,10,26,0.85); backdrop-filter:blur(15px);
+    border:1px solid rgba(100,150,255,0.2); border-radius:12px;
+    padding:12px 24px; text-align:center; pointer-events:none;
+}
+#info-panel h2 { font-size:18px; color:#64b5f6; }
+#info-panel span { font-size:12px; color:#889; }
+#view-toolbar {
+    position:absolute; top:16px; right:16px; display:flex; gap:8px;
+}
+.tool-btn {
+    padding:8px 14px; border-radius:8px; cursor:pointer; font-size:12px;
+    background:rgba(10,10,26,0.8); border:1px solid rgba(100,150,255,0.2);
+    color:#aab; transition:all .2s; backdrop-filter:blur(10px);
+}
+.tool-btn:hover,.tool-btn.active { 
+    background:rgba(66,165,245,0.2); border-color:rgba(66,165,245,0.4); color:#fff;
+}
+#zoom-hint {
+    position:absolute; bottom:80px; left:50%; transform:translateX(-50%);
+    font-size:11px; color:#556; pointer-events:none;
+}
+::-webkit-scrollbar { width:4px; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-thumb { background:rgba(100,150,255,0.2); border-radius:2px; }
+</style>
+</head>
+<body>
+
+<div id="sidebar">
+    <div id="sidebar-header">
+        <h1>⛏ Minecraft 3D</h1>
+        <p>全方块 · 群系 · 建筑 查看器</p>
+    </div>
+    <input id="search-box" placeholder="🔍 搜索方块..." oninput="filterBlocks()">
+    <div id="category-tabs"></div>
+    <div id="block-list"></div>
+</div>
+
+<div id="main-view">
+    <div id="canvas-container"></div>
+    <div id="view-toolbar">
+        <button class="tool-btn active" onclick="setView('block')">方块</button>
+        <button class="tool-btn" onclick="setView('biome')">群系</button>
+        <button class="tool-btn" onclick="setView('structure')">建筑</button>
+        <button class="tool-btn" onclick="toggleWireframe()">线框</button>
+        <button class="tool-btn" onclick="toggleGrid()">网格</button>
+    </div>
+    <div id="info-panel">
+        <h2 id="info-name">石头</h2>
+        <span id="info-cat">建筑方块</span>
+    </div>
+    <div id="zoom-hint">🖱 拖拽旋转 · 滚轮缩放 · 右键平移</div>
+</div>
+
+<script type="importmap">
+{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const blockData = [{"name": "石头", "category": "建筑", "top": "#7a7a7a", "side": "#707070", "bottom": "#7a7a7a", "special": ""}, {"name": "圆石", "category": "建筑", "top": "#6f6f6f", "side": "#5f5f5f", "bottom": "#6f6f6f", "special": "cobble"}, {"name": "石砖", "category": "建筑", "top": "#797979", "side": "#6e6e6e", "bottom": "#797979", "special": "brick"}, {"name": "苔石", "category": "建筑", "top": "#5b6e3d", "side": "#49632f", "bottom": "#5b6e3d", "special": "cobble_moss"}, {"name": "花岗岩", "category": "建筑", "top": "#95705a", "side": "#8b6652", "bottom": "#95705a", "special": ""}, {"name": "闪长岩", "category": "建筑", "top": "#b9b9b9", "side": "#aaaaaa", "bottom": "#b9b9b9", "special": ""}, {"name": "安山岩", "category": "建筑", "top": "#8b8b8b", "side": "#7f7f7f", "bottom": "#8b8b8b", "special": ""}, {"name": "平滑石头", "category": "建筑", "top": "#a6a6a6", "side": "#969696", "bottom": "#a6a6a6", "special": ""}, {"name": "砂石", "category": "建筑", "top": "#dbd2a0", "side": "#c4b98a", "bottom": "#dbd2a0", "special": ""}, {"name": "平滑砂石", "category": "建筑", "top": "#e5dba8", "side": "#cfc28c", "bottom": "#e5dba8", "special": ""}, {"name": "红砂石", "category": "建筑", "top": "#b85c1a", "side": "#9e4f14", "bottom": "#b85c1a", "special": ""}, {"name": "石英块", "category": "建筑", "top": "#ede4d3", "side": "#dbcfbc", "bottom": "#ede4d3", "special": ""}, {"name": "砖块", "category": "建筑", "top": "#9c4a32", "side": "#8c3c26", "bottom": "#9c4a32", "special": "brick"}, {"name": "地狱砖块", "category": "建筑", "top": "#4d1f1f", "side": "#3b1616", "bottom": "#4d1f1f", "special": ""}, {"name": "海晶石", "category": "建筑", "top": "#78a89c", "side": "#5c8a7e", "bottom": "#78a89c", "special": ""}, {"name": "暗海晶石", "category": "建筑", "top": "#415c49", "side": "#354a3d", "bottom": "#415c49", "special": ""}, {"name": "海晶石砖", "category": "建筑", "top": "#7fb4a8", "side": "#64978a", "bottom": "#7fb4a8", "special": ""}, {"name": "黑石", "category": "建筑", "top": "#2f2f2f", "side": "#232323", "bottom": "#2f2f2f", "special": ""}, {"name": "磨制黑石", "category": "建筑", "top": "#3a3a3a", "side": "#2e2e2e", "bottom": "#3a3a3a", "special": ""}, {"name": "黑石砖", "category": "建筑", "top": "#383838", "side": "#2c2c2c", "bottom": "#383838", "special": ""}, {"name": "玄武岩", "category": "建筑", "top": "#4a4a4e", "side": "#3a3a3e", "bottom": "#4a4a4e", "special": ""}, {"name": "紫珀块", "category": "建筑", "top": "#ab80b8", "side": "#9a6fa7", "bottom": "#ab80b8", "special": ""}, {"name": "紫珀柱", "category": "建筑", "top": "#ab80b8", "side": "#9a6fa7", "bottom": "#ab80b8", "special": "pillar"}, {"name": "末地石", "category": "建筑", "top": "#d9dda0", "side": "#c4c890", "bottom": "#d9dda0", "special": ""}, {"name": "末地石砖", "category": "建筑", "top": "#e2e6ae", "side": "#cdd19a", "bottom": "#e2e6ae", "special": ""}, {"name": "混凝土(白)", "category": "建筑", "top": "#e4e4e4", "side": "#d4d4d4", "bottom": "#e4e4e4", "special": ""}, {"name": "混凝土(黑)", "category": "建筑", "top": "#151515", "side": "#0a0a0a", "bottom": "#151515", "special": ""}, {"name": "混凝土(灰)", "category": "建筑", "top": "#4a4a4a", "side": "#3e3e3e", "bottom": "#4a4a4a", "special": ""}, {"name": "混凝土(红)", "category": "建筑", "top": "#8e2d2d", "side": "#7a2525", "bottom": "#8e2d2d", "special": ""}, {"name": "混凝土(蓝)", "category": "建筑", "top": "#2d3f8e", "side": "#25337a", "bottom": "#2d3f8e", "special": ""}, {"name": "混凝土(黄)", "category": "建筑", "top": "#c4a328", "side": "#a88a1e", "bottom": "#c4a328", "special": ""}, {"name": "混凝土(绿)", "category": "建筑", "top": "#3f6e2d", "side": "#355c24", "bottom": "#3f6e2d", "special": ""}, {"name": "混凝土(紫)", "category": "建筑", "top": "#6e2d8e", "side": "#5c247a", "bottom": "#6e2d8e", "special": ""}, {"name": "混凝土(青)", "category": "建筑", "top": "#1e6e7a", "side": "#185c67", "bottom": "#1e6e7a", "special": ""}, {"name": "混凝土(橙)", "category": "建筑", "top": "#c46e28", "side": "#a85c1e", "bottom": "#c46e28", "special": ""}, {"name": "混凝土(粉)", "category": "建筑", "top": "#c46e8b", "side": "#a85c75", "bottom": "#c46e8b", "special": ""}, {"name": "混凝土(浅蓝)", "category": "建筑", "top": "#2d8ec4", "side": "#247aa8", "bottom": "#2d8ec4", "special": ""}, {"name": "混凝土(浅绿)", "category": "建筑", "top": "#6ec428", "side": "#5ca81e", "bottom": "#6ec428", "special": ""}, {"name": "混凝土(品红)", "category": "建筑", "top": "#a828c4", "side": "#8e1ea8", "bottom": "#a828c4", "special": ""}, {"name": "混凝土(棕)", "category": "建筑", "top": "#6e4a28", "side": "#5c3c1e", "bottom": "#6e4a28", "special": ""}, {"name": "混凝土(浅灰)", "category": "建筑", "top": "#9e9e9e", "side": "#8e8e8e", "bottom": "#9e9e9e", "special": ""}, {"name": "陶瓦", "category": "建筑", "top": "#985c3c", "side": "#824c30", "bottom": "#985c3c", "special": ""}, {"name": "白色陶瓦", "category": "建筑", "top": "#d6b4a0", "side": "#c4a08c", "bottom": "#d6b4a0", "special": ""}, {"name": "彩色陶瓦", "category": "建筑", "top": "#8b4e3a", "side": "#754030", "bottom": "#8b4e3a", "special": "terracotta_glazed"}, {"name": "玻璃", "category": "建筑", "top": "#c8e8ff", "side": "#a0d4ff", "bottom": "#c8e8ff", "special": "glass"}, {"name": "白色玻璃", "category": "建筑", "top": "#e8f8ff", "side": "#c8e8ff", "bottom": "#e8f8ff", "special": "glass"}, {"name": "染色玻璃(黑)", "category": "建筑", "top": "#282828", "side": "#1a1a1a", "bottom": "#282828", "special": "glass"}, {"name": "冰", "category": "建筑", "top": "#a0c8ff", "side": "#80b0e8", "bottom": "#a0c8ff", "special": "glass"}, {"name": "浮冰", "category": "建筑", "top": "#80b0e8", "side": "#6098d0", "bottom": "#80b0e8", "special": "glass"}, {"name": "蓝冰", "category": "建筑", "top": "#6098e0", "side": "#4880c8", "bottom": "#6098e0", "special": "glass"}, {"name": "雪块", "category": "建筑", "top": "#f0f8ff", "side": "#e0e8f0", "bottom": "#f0f8ff", "special": ""}, {"name": "粘土", "category": "建筑", "top": "#9498a4", "side": "#848894", "bottom": "#9498a4", "special": ""}, {"name": "书架", "category": "建筑", "top": "#8b6e4a", "side": "#6b5236", "bottom": "#8b6e4a", "special": "bookshelf"}, {"name": "黑曜石", "category": "建筑", "top": "#1a1030", "side": "#100820", "bottom": "#1a1030", "special": ""}, {"name": "哭泣黑曜石", "category": "建筑", "top": "#1a1030", "side": "#3010a0", "bottom": "#1a1030", "special": "crying_obsidian"}, {"name": "荧石", "category": "建筑", "top": "#c8a050", "side": "#a08038", "bottom": "#c8a050", "special": "glowstone"}, {"name": "海晶灯", "category": "建筑", "top": "#c8c8a0", "side": "#b0b088", "bottom": "#c8c8a0", "special": "glowstone"}, {"name": "南瓜灯", "category": "建筑", "top": "#c8a050", "side": "#c86020", "bottom": "#c8a050", "special": "glowstone"}, {"name": "红石灯", "category": "建筑", "top": "#804010", "side": "#602008", "bottom": "#804010", "special": "glowstone"}, {"name": "灵魂沙", "category": "建筑", "top": "#4a3828", "side": "#3a2818", "bottom": "#4a3828", "special": ""}, {"name": "灵魂土", "category": "建筑", "top": "#4a3828", "side": "#3a2818", "bottom": "#4a3828", "special": ""}, {"name": "岩浆块", "category": "建筑", "top": "#602010", "side": "#4a1808", "bottom": "#602010", "special": "magma"}, {"name": "菌光体", "category": "建筑", "top": "#c8a840", "side": "#b09830", "bottom": "#c8a840", "special": "glowstone"}, {"name": "下界疣块", "category": "建筑", "top": "#802020", "side": "#6a1818", "bottom": "#802020", "special": ""}, {"name": "扭曲疣块", "category": "建筑", "top": "#208080", "side": "#186a6a", "bottom": "#208080", "special": ""}, {"name": "绯红菌岩", "category": "建筑", "top": "#802040", "side": "#6a1830", "bottom": "#802040", "special": ""}, {"name": "诡异菌岩", "category": "建筑", "top": "#204080", "side": "#18306a", "bottom": "#204080", "special": ""}, {"name": "下界岩", "category": "建筑", "top": "#603838", "side": "#502828", "bottom": "#603838", "special": ""}, {"name": "镶金黑石", "category": "建筑", "top": "#3a3020", "side": "#2e2416", "bottom": "#3a3020", "special": ""}, {"name": "草方块", "category": "自然", "top": "#7c9e3c", "side": "#6b8e2e", "bottom": "#8b6914", "special": ""}, {"name": "泥土", "category": "自然", "top": "#8b6914", "side": "#7a5c10", "bottom": "#8b6914", "special": ""}, {"name": "砂土", "category": "自然", "top": "#6b5210", "side": "#5c440c", "bottom": "#6b5210", "special": ""}, {"name": "灰化土", "category": "自然", "top": "#5c3c08", "side": "#4a2e04", "bottom": "#5c3c08", "special": ""}, {"name": "菌丝", "category": "自然", "top": "#6a4878", "side": "#583c64", "bottom": "#5c3c08", "special": ""}, {"name": "草径", "category": "自然", "top": "#8e7c3c", "side": "#7a6a30", "bottom": "#8e7c3c", "special": ""}, {"name": "耕地", "category": "自然", "top": "#8b6914", "side": "#6b4e0e", "bottom": "#8b6914", "special": ""}, {"name": "砂砾", "category": "自然", "top": "#7a7a74", "side": "#6a6a64", "bottom": "#7a7a74", "special": ""}, {"name": "沙子", "category": "自然", "top": "#dcc890", "side": "#c4b07c", "bottom": "#dcc890", "special": ""}, {"name": "红沙", "category": "自然", "top": "#b85c1a", "side": "#a05012", "bottom": "#b85c1a", "special": ""}, {"name": "基岩", "category": "自然", "top": "#3a3a3a", "side": "#303030", "bottom": "#3a3a3a", "special": ""}, {"name": "煤矿石", "category": "自然", "top": "#6a6a6a", "side": "#5a5a5a", "bottom": "#6a6a6a", "special": "ore"}, {"name": "铁矿石", "category": "自然", "top": "#b8a080", "side": "#a8906e", "bottom": "#b8a080", "special": "ore"}, {"name": "金矿石", "category": "自然", "top": "#b8a060", "side": "#a89050", "bottom": "#b8a060", "special": "ore"}, {"name": "钻石矿石", "category": "自然", "top": "#a0c0c8", "side": "#88a8b0", "bottom": "#a0c0c8", "special": "ore"}, {"name": "绿宝石矿石", "category": "自然", "top": "#80b888", "side": "#6ca074", "bottom": "#80b888", "special": "ore"}, {"name": "红石矿石", "category": "自然", "top": "#a06048", "side": "#8e503a", "bottom": "#a06048", "special": "ore"}, {"name": "青金石矿石", "category": "natural", "top": "#4870a0", "side": "#3a5c88", "bottom": "#4870a0", "special": "ore"}, {"name": "铜矿石", "category": "自然", "top": "#c88858", "side": "#b07848", "bottom": "#c88858", "special": "ore"}, {"name": "下界金矿石", "category": "自然", "top": "#b89050", "side": "#a07e40", "bottom": "#b89050", "special": "ore"}, {"name": "下界石英矿石", "category": "自然", "top": "#c8a090", "side": "#b89080", "bottom": "#c8a090", "special": "ore"}, {"name": "远古残骸", "category": "自然", "top": "#805040", "side": "#6e4030", "bottom": "#805040", "special": "ore"}, {"name": "深板岩", "category": "自然", "top": "#4a4a50", "side": "#3e3e44", "bottom": "#4a4a50", "special": ""}, {"name": "凝灰岩", "category": "自然", "top": "#606058", "side": "#52524a", "bottom": "#606058", "special": ""}, {"name": "方解石", "category": "自然", "top": "#d0d0c8", "side": "#c0c0b8", "bottom": "#d0d0c8", "special": ""}, {"name": "滴水石块", "category": "自然", "top": "#888870", "side": "#787860", "bottom": "#888870", "special": ""}, {"name": "橡木木板", "category": "木材", "top": "#b8905c", "side": "#b8905c", "bottom": "#b8905c", "special": "planks"}, {"name": "橡木原木", "category": "木材", "top": "#705434", "side": "#705434", "bottom": "#705434", "special": "log"}, {"name": "橡木树叶", "category": "木材", "top": "#847056", "side": "#7a664c", "bottom": "#847056", "special": "leaves"}, {"name": "云杉木木板", "category": "木材", "top": "#705434", "side": "#705434", "bottom": "#705434", "special": "planks"}, {"name": "云杉木原木", "category": "木材", "top": "#422c1a", "side": "#422c1a", "bottom": "#422c1a", "special": "log"}, {"name": "云杉木树叶", "category": "木材", "top": "#605242", "side": "#564838", "bottom": "#605242", "special": "leaves"}, {"name": "白桦木木板", "category": "木材", "top": "#c4b878", "side": "#c4b878", "bottom": "#c4b878", "special": "planks"}, {"name": "白桦木原木", "category": "木材", "top": "#70644c", "side": "#70644c", "bottom": "#70644c", "special": "log"}, {"name": "白桦木树叶", "category": "木材", "top": "#8a8464", "side": "#807a5a", "bottom": "#8a8464", "special": "leaves"}, {"name": "丛林木木板", "category": "木材", "top": "#a07050", "side": "#a07050", "bottom": "#a07050", "special": "planks"}, {"name": "丛林木原木", "category": "木材", "top": "#5c3824", "side": "#5c3824", "bottom": "#5c3824", "special": "log"}, {"name": "丛林木树叶", "category": "木材", "top": "#786050", "side": "#6e5646", "bottom": "#786050", "special": "leaves"}, {"name": "金合欢木木板", "category": "木材", "top": "#b86030", "side": "#b86030", "bottom": "#b86030", "special": "planks"}, {"name": "金合欢木原木", "category": "木材", "top": "#5c3828", "side": "#5c3828", "bottom": "#5c3828", "special": "log"}, {"name": "金合欢木树叶", "category": "木材", "top": "#845840", "side": "#7a4e36", "bottom": "#845840", "special": "leaves"}, {"name": "深色橡木木板", "category": "木材", "top": "#583820", "side": "#583820", "bottom": "#583820", "special": "planks"}, {"name": "深色橡木原木", "category": "木材", "top": "#382414", "side": "#382414", "bottom": "#382414", "special": "log"}, {"name": "深色橡木树叶", "category": "木材", "top": "#544438", "side": "#4a3a2e", "bottom": "#544438", "special": "leaves"}, {"name": "红树木木板", "category": "木材", "top": "#803838", "side": "#803838", "bottom": "#803838", "special": "planks"}, {"name": "红树木原木", "category": "木材", "top": "#502424", "side": "#502424", "bottom": "#502424", "special": "log"}, {"name": "红树木树叶", "category": "木材", "top": "#684444", "side": "#5e3a3a", "bottom": "#684444", "special": "leaves"}, {"name": "樱花木木板", "category": "木材", "top": "#c08898", "side": "#c08898", "bottom": "#c08898", "special": "planks"}, {"name": "樱花木原木", "category": "木材", "top": "#684050", "side": "#684050", "bottom": "#684050", "special": "log"}, {"name": "樱花木树叶", "category": "木材", "top": "#886c74", "side": "#7e626a", "bottom": "#886c74", "special": "leaves"}, {"name": "绯红菌柄木板", "category": "木材", "top": "#803848", "side": "#803848", "bottom": "#803848", "special": "planks"}, {"name": "绯红菌柄原木", "category": "木材", "top": "#502430", "side": "#502430", "bottom": "#502430", "special": "log"}, {"name": "绯红菌柄树叶", "category": "木材", "top": "#68444c", "side": "#5e3a42", "bottom": "#68444c", "special": "leaves"}, {"name": "诡异菌柄木板", "category": "木材", "top": "#386058", "side": "#386058", "bottom": "#386058", "special": "planks"}, {"name": "诡异菌柄原木", "category": "木材", "top": "#243a34", "side": "#243a34", "bottom": "#243a34", "special": "log"}, {"name": "诡异菌柄树叶", "category": "木材", "top": "#445854", "side": "#3a4e4a", "bottom": "#445854", "special": "leaves"}, {"name": "竹块木板", "category": "木材", "top": "#a8a848", "side": "#a8a848", "bottom": "#a8a848", "special": "planks"}, {"name": "竹块原木", "category": "木材", "top": "#6a6a2e", "side": "#6a6a2e", "bottom": "#6a6a2e", "special": "log"}, {"name": "竹块树叶", "category": "木材", "top": "#7c7c4c", "side": "#727242", "bottom": "#7c7c4c", "special": "leaves"}, {"name": "煤炭块", "category": "矿物", "top": "#282828", "side": "#202020", "bottom": "#282828", "special": ""}, {"name": "铁块", "category": "矿物", "top": "#d8d0c8", "side": "#c4bcb4", "bottom": "#d8d0c8", "special": ""}, {"name": "金块", "category": "矿物", "top": "#f8e830", "side": "#e0d020", "bottom": "#f8e830", "special": ""}, {"name": "钻石块", "category": "矿物", "top": "#58e8d8", "side": "#40d4c8", "bottom": "#58e8d8", "special": ""}, {"name": "绿宝石块", "category": "矿物", "top": "#28d828", "side": "#18c018", "bottom": "#28d828", "special": ""}, {"name": "红石块", "category": "矿物", "top": "#c82818", "side": "#b02010", "bottom": "#c82818", "special": ""}, {"name": "青金石块", "category": "矿物", "top": "#2848c8", "side": "#1838b0", "bottom": "#2848c8", "special": ""}, {"name": "铜块", "category": "矿物", "top": "#d87848", "side": "#c06838", "bottom": "#d87848", "special": ""}, {"name": "下界合金块", "category": "矿物", "top": "#583828", "side": "#482820", "bottom": "#583828", "special": ""}, {"name": "工作台", "category": "功能", "top": "#b8905c", "side": "#a0804c", "bottom": "#705434", "special": ""}, {"name": "熔炉", "category": "功能", "top": "#787878", "side": "#686868", "bottom": "#585858", "special": ""}, {"name": "箱子", "category": "功能", "top": "#b8905c", "side": "#a0804c", "bottom": "#b8905c", "special": ""}, {"name": "末影箱", "category": "功能", "top": "#1a2040", "side": "#1a1a30", "bottom": "#1a2040", "special": "ender_chest"}, {"name": "铁砧", "category": "功能", "top": "#484848", "side": "#383838", "bottom": "#484848", "special": ""}, {"name": "附魔台", "category": "功能", "top": "#c82828", "side": "#801818", "bottom": "#1a1030", "special": ""}, {"name": "酿造台", "category": "功能", "top": "#b8a048", "side": "#a09038", "bottom": "#b8a048", "special": ""}, {"name": "音符盒", "category": "功能", "top": "#704828", "side": "#603820", "bottom": "#704828", "special": ""}, {"name": "唱片机", "category": "功能", "top": "#704828", "side": "#603820", "bottom": "#704828", "special": ""}, {"name": "发射器", "category": "功能", "top": "#686868", "side": "#585858", "bottom": "#686868", "special": ""}, {"name": "投掷器", "category": "功能", "top": "#686868", "side": "#585858", "bottom": "#686868", "special": ""}, {"name": "漏斗", "category": "功能", "top": "#787878", "side": "#686868", "bottom": "#787878", "special": ""}, {"name": "TNT", "category": "功能", "top": "#c82818", "side": "#a02010", "bottom": "#c82818", "special": "tnt"}, {"name": "信标", "category": "功能", "top": "#58e8d8", "side": "#a0c0c8", "bottom": "#282828", "special": ""}, {"name": "重生锚", "category": "功能", "top": "#1a1030", "side": "#100820", "bottom": "#1a1030", "special": "respawn_anchor"}, {"name": "潜影盒", "category": "功能", "top": "#8058a0", "side": "#704890", "bottom": "#8058a0", "special": ""}, {"name": "织布机", "category": "功能", "top": "#a08050", "side": "#907040", "bottom": "#a08050", "special": ""}, {"name": "制图台", "category": "功能", "top": "#a08050", "side": "#907040", "bottom": "#a08050", "special": ""}, {"name": "锻造台", "category": "功能", "top": "#686868", "side": "#585858", "bottom": "#686868", "special": ""}, {"name": "切石机", "category": "功能", "top": "#787878", "side": "#686868", "bottom": "#787878", "special": ""}, {"name": "烟熏炉", "category": "功能", "top": "#686868", "side": "#585858", "bottom": "#484848", "special": ""}, {"name": "高炉", "category": "功能", "top": "#585858", "side": "#484848", "bottom": "#383838", "special": ""}, {"name": "堆肥桶", "category": "功能", "top": "#6b5210", "side": "#5c440c", "bottom": "#6b5210", "special": ""}, {"name": "蜂巢", "category": "功能", "top": "#c89030", "side": "#b07828", "bottom": "#c89030", "special": ""}, {"name": "蜂箱", "category": "功能", "top": "#b8905c", "side": "#a0804c", "bottom": "#b8905c", "special": ""}, {"name": "炼药锅", "category": "功能", "top": "#585858", "side": "#484848", "bottom": "#585858", "special": ""}, {"name": "磨石", "category": "功能", "top": "#787878", "side": "#686868", "bottom": "#787878", "special": ""}, {"name": "讲台", "category": "功能", "top": "#b8905c", "side": "#a0804c", "bottom": "#b8905c", "special": ""}, {"name": "制箭台", "category": "功能", "top": "#a08050", "side": "#907040", "bottom": "#a08050", "special": ""}, {"name": "磁石", "category": "功能", "top": "#584838", "side": "#4a3a2c", "bottom": "#584838", "special": ""}, {"name": "避雷针", "category": "功能", "top": "#d87848", "side": "#c06838", "bottom": "#d87848", "special": ""}, {"name": "滴水石锥", "category": "功能", "top": "#888870", "side": "#787860", "bottom": "#888870", "special": ""}, {"name": "红石粉", "category": "红石", "top": "#c82818", "side": "#a02010", "bottom": "#c82818", "special": ""}, {"name": "红石中继器", "category": "红石", "top": "#787878", "side": "#686868", "bottom": "#787878", "special": ""}, {"name": "红石比较器", "category": "红石", "top": "#787878", "side": "#686868", "bottom": "#787878", "special": ""}, {"name": "活塞", "category": "红石", "top": "#b8905c", "side": "#a0804c", "bottom": "#787878", "special": ""}, {"name": "粘性活塞", "category": "红石", "top": "#b8905c", "side": "#a0804c", "bottom": "#787878", "special": "sticky_piston"}, {"name": "侦测器", "category": "红石", "top": "#686868", "side": "#585858", "bottom": "#686868", "special": ""}, {"name": "阳光传感器", "category": "红石", "top": "#c8c8a0", "side": "#b0b088", "bottom": "#c8c8a0", "special": ""}, {"name": "绊线钩", "category": "红石", "top": "#686868", "side": "#585858", "bottom": "#686868", "special": ""}, {"name": "标靶方块", "category": "红石", "top": "#c8c8c8", "side": "#b0b0b0", "bottom": "#c8c8c8", "special": "target"}, {"name": "红石灯", "category": "红石", "top": "#804010", "side": "#602008", "bottom": "#804010", "special": "glowstone"}, {"name": "荧石", "category": "下界", "top": "#c8a050", "side": "#a08038", "bottom": "#c8a050", "special": "glowstone"}, {"name": "下界石英矿石", "category": "下界", "top": "#c8a090", "side": "#b89080", "bottom": "#c8a090", "special": "ore"}, {"name": "绯红木板", "category": "下界", "top": "#a05070", "side": "#904060", "bottom": "#a05070", "special": "planks"}, {"name": "诡异木板", "category": "下界", "top": "#508070", "side": "#407060", "bottom": "#508070", "special": "planks"}, {"name": "下界砖栅栏", "category": "下界", "top": "#4d1f1f", "side": "#3b1616", "bottom": "#4d1f1f", "special": ""}, {"name": "末地石砖", "category": "末地", "top": "#e2e6ae", "side": "#cdd19a", "bottom": "#e2e6ae", "special": ""}, {"name": "紫珀块", "category": "末地", "top": "#ab80b8", "side": "#9a6fa7", "bottom": "#ab80b8", "special": ""}, {"name": "紫珀柱", "category": "末地", "top": "#ab80b8", "side": "#9a6fa7", "bottom": "#ab80b8", "special": "pillar"}, {"name": "末地烛", "category": "末地", "top": "#f0f0f0", "side": "#e0e0d0", "bottom": "#f0f0f0", "special": ""}];
+const biomeData = ["平原", "沙漠", "森林", "黑森林", "针叶林", "积雪针叶林", "热带草原", "丛林", "竹林", "恶地", "蘑菇岛", "沼泽", "海洋", "深海", "河流", "海滩", "石岸", "雪山", "冻原", "下界荒地", "绯红森林", "诡异森林", "灵魂沙峡谷", "玄武岩三角洲", "末地", "樱花树林", "红树林沼泽", "溶洞"];
+const structureData = ["末地堡垒", "下界要塞", "海底神殿", "林地府邸", "村庄", "废弃矿井", "沙漠神殿", "丛林神庙", "掠夺者前哨站", "沼泽小屋", "雪屋", "要塞", "沉船", "海底废墟", "埋藏的宝藏", "远古城市", "古城", "要塞遗迹", "堡垒遗迹", "下界化石", "紫水晶洞", "繁茂洞穴", "钟乳石洞穴"];
+
+// Scene setup
+const container = document.getElementById('canvas-container');
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
+camera.position.set(2.5, 2, 3);
+camera.lookAt(0, 0.5, 0);
+
+const renderer = new THREE.WebGLRenderer({antialias:true, alpha:true});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.2;
+container.appendChild(renderer.domElement);
+
+// Controls
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.minDistance = 1.5;
+controls.maxDistance = 8;
+controls.maxPolarAngle = Math.PI * 0.7;
+controls.target.set(0, 0.5, 0);
+
+// Lights
+const ambientLight = new THREE.AmbientLight('#334466', 2.5);
+scene.add(ambientLight);
+const keyLight = new THREE.DirectionalLight('#ffffff', 3);
+keyLight.position.set(5, 8, 5);
+keyLight.castShadow = true;
+keyLight.shadow.mapSize.set(1024, 1024);
+keyLight.shadow.camera.near = 0.5;
+keyLight.shadow.camera.far = 30;
+keyLight.shadow.camera.left = -8;
+keyLight.shadow.camera.right = 8;
+keyLight.shadow.camera.top = 8;
+keyLight.shadow.camera.bottom = -8;
+scene.add(keyLight);
+const rimLight = new THREE.DirectionalLight('#4488cc', 1.5);
+rimLight.position.set(-3, 2, -3);
+scene.add(rimLight);
+const fillLight = new THREE.DirectionalLight('#886644', 1);
+fillLight.position.set(0, -0.5, 2);
+scene.add(fillLight);
+
+// Grid
+const gridHelper = new THREE.GridHelper(6, 12, '#334466', '#1a1a2e');
+gridHelper.position.y = -0.75;
+scene.add(gridHelper);
+
+// Ground plane (shadow receiver)
+const groundGeo = new THREE.PlaneGeometry(8, 8);
+const groundMat = new THREE.ShadowMaterial({opacity:0.3});
+const ground = new THREE.Mesh(groundGeo, groundMat);
+ground.rotation.x = -Math.PI/2;
+ground.position.y = -0.75;
+ground.receiveShadow = true;
+scene.add(ground);
+
+// Star particles
+const starGeo = new THREE.BufferGeometry();
+const starCount = 800;
+const starPositions = new Float32Array(starCount * 3);
+for (let i = 0; i < starCount; i++) {
+    starPositions[i*3] = (Math.random() - 0.5) * 20;
+    starPositions[i*3+1] = Math.random() * 10 + 1;
+    starPositions[i*3+2] = (Math.random() - 0.5) * 20;
+}
+starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+const starMat = new THREE.PointsMaterial({color:'#5588bb', size:0.02, transparent:true, opacity:0.6});
+const stars = new THREE.Points(starGeo, starMat);
+scene.add(stars);
+
+// Main block mesh
+let currentBlockMesh = null;
+let currentView = 'block';
+let wireframe = false;
+let showGrid = true;
+
+// Procedural canvas texture generator
+function createBlockTexture(color, special) {
+    const size = 256;
+    const canvas = document.createElement('canvas');
+    canvas.width = size; canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    
+    // Base color
+    ctx.fillStyle = color;
+    ctx.fillRect(0, 0, size, size);
+    
+    // Add noise/texture
+    const imageData = ctx.getImageData(0, 0, size, size);
+    const d = imageData.data;
+    for (let i = 0; i < d.length; i += 4) {
+        const noise = (Math.random() - 0.5) * 25;
+        d[i] = Math.min(255, Math.max(0, d[i] + noise));
+        d[i+1] = Math.min(255, Math.max(0, d[i+1] + noise));
+        d[i+2] = Math.min(255, Math.max(0, d[i+2] + noise));
+    }
+    ctx.putImageData(imageData, 0, 0);
+    
+    // Special treatments
+    if (special === 'planks') {
+        // Wood plank lines
+        ctx.strokeStyle = 'rgba(0,0,0,0.08)';
+        ctx.lineWidth = 2;
+        for (let y = 0; y < size; y += size/4) {
+            ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(size, y); ctx.stroke();
+        }
+        // Random plank variation
+        for (let i = 0; i < 4; i++) {
+            const y = i * size/4;
+            ctx.fillStyle = `rgba(${Math.random()>0.5?'255,255,255':'0,0,0'},${Math.random()*0.06})`;
+            ctx.fillRect(0, y, size, size/4);
+        }
+    } else if (special === 'cobble') {
+        // Cobblestone pattern
+        ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+        ctx.lineWidth = 3;
+        const cells = 4;
+        for (let x = 0; x <= cells; x++) {
+            const ox = (x / cells) * size + (Math.random() - 0.5) * 20;
+            ctx.beginPath(); ctx.moveTo(ox, 0); ctx.lineTo(ox, size); ctx.stroke();
+        }
+        for (let y = 0; y <= cells; y++) {
+            const oy = (y / cells) * size + (Math.random() - 0.5) * 20;
+            ctx.beginPath(); ctx.moveTo(0, oy); ctx.lineTo(size, oy); ctx.stroke();
+        }
+    } else if (special === 'brick') {
+        ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+        ctx.lineWidth = 3;
+        const rows = 6;
+        for (let r = 0; r < rows; r++) {
+            const y = (r / rows) * size;
+            ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(size, y); ctx.stroke();
+            const cols = (r % 2 === 0) ? 4 : 3;
+            const offset = (r % 2 === 0) ? 0 : size/(cols*2);
+            for (let c = 0; c <= cols; c++) {
+                const x = offset + (c / cols) * size;
+                if ((r % 2 === 0) || (c > 0 && c < cols)) {
+                    ctx.beginPath(); ctx.moveTo(x, y-size/rows); ctx.lineTo(x, y); ctx.stroke();
+                }
+            }
+        }
+    } else if (special === 'log') {
+        // Tree rings
+        ctx.fillStyle = 'rgba(0,0,0,0.06)';
+        for (let i = 0; i < 8; i++) {
+            ctx.beginPath();
+            ctx.arc(size/2, size/2, size * (0.05 + i * 0.06), 0, Math.PI * 2);
+            ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+            ctx.lineWidth = 1 + Math.random() * 2;
+            ctx.stroke();
+        }
+    } else if (special === 'ore') {
+        // Ore spots
+        for (let i = 0; i < 20; i++) {
+            const x = Math.random() * size;
+            const y = Math.random() * size;
+            const r = 5 + Math.random() * 15;
+            ctx.fillStyle = color;
+            ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill();
+        }
+    } else if (special === 'glass') {
+        ctx.fillStyle = color;
+        ctx.globalAlpha = 0.5;
+        ctx.fillRect(0, 0, size, size);
+        ctx.globalAlpha = 1;
+        // Glass streaks
+        ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+        ctx.lineWidth = 1;
+        for (let i = 0; i < 3; i++) {
+            const x = size * 0.2 + Math.random() * size * 0.3;
+            ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x + 20, size); ctx.stroke();
+        }
+    } else if (special === 'glowstone') {
+        // Bright spots
+        const gradient = ctx.createRadialGradient(size/2, size/2, 0, size/2, size/2, size/1.5);
+        gradient.addColorStop(0, 'rgba(255,255,200,0.3)');
+        gradient.addColorStop(1, 'rgba(0,0,0,0.1)');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, size, size);
+    } else if (special === 'bookshelf') {
+        ctx.fillStyle = '#8b6e4a';
+        ctx.fillRect(0, 0, size, size);
+        for (let row = 0; row < 4; row++) {
+            const y = row * size/4 + 4;
+            const h = size/4 - 8;
+            // Books with different colors
+            const bookColors = ['#c83030','#309030','#3030c0','#c09030','#9030c0','#30c090'];
+            for (let col = 0; col < 6; col++) {
+                const x = col * size/6 + 3;
+                const w = size/6 - 6;
+                ctx.fillStyle = bookColors[(row+col)%bookColors.length];
+                ctx.fillRect(x, y, w, h);
+                ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+                ctx.strokeRect(x, y, w, h);
+            }
+        }
+    } else if (special === 'tnt') {
+        ctx.fillStyle = '#c82818';
+        ctx.fillRect(0, 0, size, size);
+        ctx.fillStyle = 'rgba(255,255,255,0.9)';
+        ctx.fillRect(size*0.15, 0, size*0.7, size*0.3);
+        ctx.fillRect(0, size*0.35, size, size*0.3);
+        ctx.fillRect(size*0.15, size*0.65, size*0.7, size*0.35);
+        ctx.fillStyle = 'rgba(0,0,0,0.8)';
+        ctx.font = 'bold ' + size*0.18 + 'px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('TNT', size/2, size*0.62);
+    } else if (special === 'leaves') {
+        for (let i = 0; i < 60; i++) {
+            const x = Math.random() * size;
+            const y = Math.random() * size;
+            const r = 8 + Math.random() * 12;
+            ctx.fillStyle = color;
+            ctx.globalAlpha = 0.3 + Math.random() * 0.4;
+            ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+    } else if (special === 'magma') {
+        ctx.fillStyle = '#602010';
+        ctx.fillRect(0, 0, size, size);
+        for (let i = 0; i < 40; i++) {
+            const x = Math.random() * size;
+            const y = Math.random() * size;
+            const r = 3 + Math.random() * 8;
+            const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
+            grad.addColorStop(0, 'rgba(255,180,20,0.9)');
+            grad.addColorStop(0.5, 'rgba(255,80,10,0.6)');
+            grad.addColorStop(1, 'rgba(200,20,0,0)');
+            ctx.fillStyle = grad;
+            ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill();
+        }
+    } else if (special === 'pillar') {
+        ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+        ctx.lineWidth = 3;
+        for (let x = 0; x <= size; x += size/5) {
+            ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, size); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(0, x); ctx.lineTo(size, x); ctx.stroke();
+        }
+    } else if (special === 'target') {
+        ctx.fillStyle = '#c8c8c8';
+        ctx.fillRect(0, 0, size, size);
+        const rings = ['#e8e8e8','#d0d0d0','#c0c0c0','#e8e8e8','#c82818'];
+        for (let i = rings.length-1; i >= 0; i--) {
+            const r = size * (0.1 + i * 0.08);
+            ctx.fillStyle = rings[i];
+            ctx.beginPath(); ctx.arc(size/2, size/2, r, 0, Math.PI*2); ctx.fill();
+        }
+    } else if (special === 'crying_obsidian') {
+        ctx.fillStyle = '#1a1030';
+        ctx.fillRect(0, 0, size, size);
+        // Purple glow cracks
+        for (let i = 0; i < 15; i++) {
+            const x = Math.random() * size;
+            const y = Math.random() * size;
+            const grad = ctx.createRadialGradient(x, y, 0, x, y, 8 + Math.random()*8);
+            grad.addColorStop(0, 'rgba(160,60,220,0.8)');
+            grad.addColorStop(1, 'rgba(160,60,220,0)');
+            ctx.fillStyle = grad;
+            ctx.beginPath(); ctx.arc(x, y, 10 + Math.random()*10, 0, Math.PI*2); ctx.fill();
+        }
+    } else if (special === 'ender_chest') {
+        ctx.fillStyle = '#1a2040';
+        ctx.fillRect(0, 0, size, size);
+        // Eye pattern
+        ctx.fillStyle = '#40e8e8';
+        ctx.beginPath(); ctx.arc(size/2, size/2, size*0.25, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = '#1a2040';
+        ctx.beginPath(); ctx.arc(size/2, size/2, size*0.12, 0, Math.PI*2); ctx.fill();
+    } else if (special === 'respawn_anchor') {
+        ctx.fillStyle = '#1a1030';
+        ctx.fillRect(0, 0, size, size);
+        const glow = ctx.createRadialGradient(size/2, size/2, 0, size/2, size/2, size/2);
+        glow.addColorStop(0, 'rgba(200,60,200,0.5)');
+        glow.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = glow;
+        ctx.fillRect(0, 0, size, size);
+    }
+    
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.magFilter = THREE.LinearFilter;
+    tex.minFilter = THREE.LinearMipmapLinearFilter;
+    tex.generateMipmaps = true;
+    return tex;
+}
+
+function createBlockMesh(block) {
+    if (currentBlockMesh) {
+        scene.remove(currentBlockMesh);
+        disposeMesh(currentBlockMesh);
+    }
+    
+    const group = new THREE.Group();
+    
+    // Create 6-face box
+    const size = 1;
+    const topTex = createBlockTexture(block.top, block.special);
+    const sideTex = createBlockTexture(block.side, block.special);
+    const bottomTex = createBlockTexture(block.bottom, block.special);
+    
+    const materials = [
+        new THREE.MeshStandardMaterial({map:sideTex, roughness:0.6, metalness:0.05}), // right
+        new THREE.MeshStandardMaterial({map:sideTex, roughness:0.6, metalness:0.05}), // left
+        new THREE.MeshStandardMaterial({map:topTex, roughness:0.6, metalness:0.05}),  // top
+        new THREE.MeshStandardMaterial({map:bottomTex, roughness:0.7, metalness:0.05}), // bottom
+        new THREE.MeshStandardMaterial({map:sideTex, roughness:0.6, metalness:0.05}), // front
+        new THREE.MeshStandardMaterial({map:sideTex, roughness:0.6, metalness:0.05}), // back
+    ];
+    
+    const boxGeo = new THREE.BoxGeometry(size, size, size, 2, 2, 2);
+    const boxMesh = new THREE.Mesh(boxGeo, materials);
+    boxMesh.castShadow = true;
+    boxMesh.receiveShadow = true;
+    group.add(boxMesh);
+    
+    // Add subtle edge highlight
+    const edgeGeo = new THREE.EdgesGeometry(boxGeo);
+    const edgeMat = new THREE.LineBasicMaterial({color:'rgba(0,0,0,0.15)', transparent:true, opacity:0.3});
+    const edgeLine = new THREE.LineSegments(edgeGeo, edgeMat);
+    group.add(edgeLine);
+    
+    // Reflection plane (slight shine)
+    const planeGeo = new THREE.PlaneGeometry(size*1.2, size*1.2);
+    const planeMat = new THREE.ShadowMaterial({opacity:0.15});
+    const plane = new THREE.Mesh(planeGeo, planeMat);
+    plane.rotation.x = -Math.PI/2;
+    plane.position.y = -size/2 - 0.01;
+    plane.receiveShadow = true;
+    group.add(plane);
+    
+    scene.add(group);
+    currentBlockMesh = group;
+    return group;
+}
+
+function disposeMesh(mesh) {
+    mesh.traverse(child => {
+        if (child.geometry) child.geometry.dispose();
+        if (child.material) {
+            if (Array.isArray(child.material)) {
+                child.material.forEach(m => { if(m.map) m.map.dispose(); m.dispose(); });
+            } else {
+                if (child.material.map) child.material.map.dispose();
+                child.material.dispose();
+            }
+        }
+    });
+}
+
+// Scene for biomes
+let biomeMeshes = [];
+function createBiomeScene(biomeName) {
+    if (currentBlockMesh) { scene.remove(currentBlockMesh); disposeMesh(currentBlockMesh); currentBlockMesh = null; }
+    biomeMeshes.forEach(m => { scene.remove(m); disposeMesh(m); });
+    biomeMeshes = [];
+    
+    // Create a small terrain patch
+    const group = new THREE.Group();
+    const groundColor = getBiomeColor(biomeName);
+    const groundTex = createBlockTexture(groundColor, '');
+    
+    // Ground
+    const groundGeo = new THREE.PlaneGeometry(4, 4);
+    const groundMat = new THREE.MeshStandardMaterial({map:groundTex, roughness:0.8, metalness:0});
+    const groundPlane = new THREE.Mesh(groundGeo, groundMat);
+    groundPlane.rotation.x = -Math.PI/2;
+    groundPlane.position.y = -0.75;
+    groundPlane.receiveShadow = true;
+    group.add(groundPlane);
+    
+    // Decorative blocks
+    const blockColors = getBiomeBlocks(biomeName);
+    for (let i = 0; i < 6; i++) {
+        const bGeo = new THREE.BoxGeometry(0.3, 0.3 + Math.random()*0.4, 0.3);
+        const bTex = createBlockTexture(blockColors[i % blockColors.length], '');
+        const bMat = new THREE.MeshStandardMaterial({map:bTex, roughness:0.7});
+        const b = new THREE.Mesh(bGeo, bMat);
+        b.position.set((Math.random()-0.5)*3, -0.6 + Math.random()*0.3, (Math.random()-0.5)*3);
+        b.castShadow = true;
+        b.receiveShadow = true;
+        group.add(b);
+    }
+    
+    // label
+    scene.add(group);
+    biomeMeshes.push(group);
+    document.getElementById('info-name').textContent = biomeName;
+    document.getElementById('info-cat').textContent = '群系';
+}
+
+function getBiomeColor(name) {
+    const map = {
+        '平原':'#7c9e3c','沙漠':'#dcc890','森林':'#4a7a2e','黑森林':'#2a4a1a',
+        '针叶林':'#5a7a3a','积雪针叶林':'#e8f0e8','热带草原':'#a89040',
+        '丛林':'#3a8a1a','竹林':'#6a9a30','恶地':'#c87030','蘑菇岛':'#805870',
+        '沼泽':'#4a5a30','海洋':'#2848a0','深海':'#183880','河流':'#3868c0',
+        '海滩':'#dcc890','石岸':'#707070','雪山':'#f0f8ff','冻原':'#e0e8f0',
+        '下界荒地':'#602020','绯红森林':'#802040','诡异森林':'#206060',
+        '灵魂沙峡谷':'#382818','玄武岩三角洲':'#3a3a3e','末地':'#d9dda0',
+        '樱花树林':'#c08898','红树林沼泽':'#603820','溶洞':'#686860'
+    };
+    return map[name] || '#7a7a7a';
+}
+
+function getBiomeBlocks(name) {
+    const map = {
+        '平原':['#7c9e3c','#8b6914','#a0c828'],
+        '沙漠':['#dcc890','#c4b07c','#e8d4a0'],
+        '森林':['#4a7a2e','#6b8e2e','#8b6914'],
+        '下界荒地':['#602020','#4a1a1a','#803838'],
+        '末地':['#d9dda0','#c4c890','#e2e6ae'],
+        '海洋':['#2848a0','#3870c0','#4888d8'],
+        '雪山':['#f0f8ff','#e0e8f0','#d0d8e8'],
+        '恶地':['#c87030','#b06020','#d88040'],
+        '丛林':['#3a8a1a','#2a6a0e','#4a9a2a'],
+    };
+    return map[name] || ['#7a7a7a','#8b8b8b'];
+}
+
+function createStructureScene(name) {
+    if (currentBlockMesh) { scene.remove(currentBlockMesh); disposeMesh(currentBlockMesh); currentBlockMesh = null; }
+    biomeMeshes.forEach(m => { scene.remove(m); disposeMesh(m); });
+    biomeMeshes = [];
+    
+    const group = new THREE.Group();
+    if (name === '末地堡垒') {
+        // End city towers
+        const pillarMat = new THREE.MeshStandardMaterial({map:createBlockTexture('#e2e6ae', ''), roughness:0.6});
+        const purpurMat = new THREE.MeshStandardMaterial({map:createBlockTexture('#ab80b8', ''), roughness:0.5});
+        for (let i = 0; i < 3; i++) {
+            const x = (i-1)*1.2;
+            const h = 1.5 + i*0.3;
+            const pillarGeo = new THREE.CylinderGeometry(0.15, 0.2, h, 8);
+            const pillar = new THREE.Mesh(pillarGeo, pillarMat);
+            pillar.position.set(x, -0.75 + h/2, 0);
+            pillar.castShadow = true;
+            group.add(pillar);
+            // Purpur top
+            const topGeo = new THREE.BoxGeometry(0.35, 0.2, 0.35);
+            const top = new THREE.Mesh(topGeo, purpurMat);
+            top.position.set(x, -0.75 + h + 0.1, 0);
+            top.castShadow = true;
+            group.add(top);
+        }
+    } else if (name === '下界要塞') {
+        const brickMat = new THREE.MeshStandardMaterial({map:createBlockTexture('#4d1f1f', 'brick'), roughness:0.7});
+        for (let i = 0; i < 4; i++) {
+            const pillarGeo = new THREE.BoxGeometry(0.2, 2, 0.2);
+            const pillar = new THREE.Mesh(pillarGeo, brickMat);
+            pillar.position.set((i-1.5)*0.8, -0.75+1, 0);
+            pillar.castShadow = true;
+            group.add(pillar);
+        }
+        const bridgeGeo = new THREE.BoxGeometry(2.4, 0.15, 0.8);
+        const bridge = new THREE.Mesh(bridgeGeo, brickMat);
+        bridge.position.y = -0.75+2.1;
+        bridge.castShadow = true;
+        group.add(bridge);
+    } else if (name === '海底神殿') {
+        const prisMat = new THREE.MeshStandardMaterial({map:createBlockTexture('#78a89c', ''), roughness:0.5, metalness:0.2});
+        const baseGeo = new THREE.BoxGeometry(2, 0.5, 2);
+        const base = new THREE.Mesh(baseGeo, prisMat);
+        base.position.y = -0.5;
+        base.castShadow = true;
+        group.add(base);
+        const midGeo = new THREE.BoxGeometry(1.5, 1, 1.5);
+        const mid = new THREE.Mesh(midGeo, prisMat);
+        mid.position.y = 0.25;
+        mid.castShadow = true;
+        group.add(mid);
+        const topGeo = new THREE.ConeGeometry(0.8, 0.6, 4);
+        const topMesh = new THREE.Mesh(topGeo, prisMat);
+        topMesh.position.y = 1.05;
+        topMesh.rotation.y = Math.PI/4;
+        topMesh.castShadow = true;
+        group.add(topMesh);
+    } else {
+        // Generic structure
+        const colors = ['#6f6f6f','#b8905c','#707070','#8b6914'];
+        for (let i = 0; i < 5; i++) {
+            const bGeo = new THREE.BoxGeometry(0.3, 0.3 + Math.random()*0.8, 0.3);
+            const bTex = createBlockTexture(colors[i%4], i%2?'brick':'');
+            const bMat = new THREE.MeshStandardMaterial({map:bTex, roughness:0.7});
+            const b = new THREE.Mesh(bGeo, bMat);
+            b.position.set((Math.random()-0.5)*2, -0.6 + Math.random()*1, (Math.random()-0.5)*2);
+            b.castShadow = true;
+            group.add(b);
+        }
+    }
+    scene.add(group);
+    biomeMeshes.push(group);
+    document.getElementById('info-name').textContent = name;
+    document.getElementById('info-cat').textContent = '建筑';
+}
+
+// UI Logic
+let currentCategory = '全部';
+const categories = [...new Set(blockData.map(b => b.category))];
+
+function renderCategoryTabs() {
+    const container = document.getElementById('category-tabs');
+    const allTabs = ['全部', ...categories];
+    container.innerHTML = allTabs.map(c => 
+        `<span class="cat-tab${c===currentCategory?' active':''}" onclick="setCategory('${c}')">${c}</span>`
+    ).join('');
+}
+
+function renderBlockList() {
+    const search = document.getElementById('search-box').value.toLowerCase();
+    const list = document.getElementById('block-list');
+    
+    let filtered = blockData;
+    if (currentCategory !== '全部') {
+        filtered = filtered.filter(b => b.category === currentCategory);
+    }
+    if (search) {
+        filtered = filtered.filter(b => b.name.toLowerCase().includes(search));
+    }
+    
+    list.innerHTML = filtered.map((b, i) => 
+        `<div class="block-item" onclick="selectBlock(${i}, '${b.name}')" data-idx="${i}">
+            <div class="block-color" style="background:${b.side}"></div>
+            <span>${b.name}</span>
+        </div>`
+    ).join('');
+    
+    // Cache filtered list
+    window._filtered = filtered;
+}
+
+function setCategory(cat) {
+    currentCategory = cat;
+    renderCategoryTabs();
+    renderBlockList();
+}
+
+function filterBlocks() { renderBlockList(); }
+
+function selectBlock(idx, name) {
+    document.querySelectorAll('.block-item').forEach(el => el.classList.remove('selected'));
+    const item = document.querySelector(`[data-idx="${idx}"]`);
+    if (item) item.classList.add('selected');
+    
+    const block = window._filtered[idx];
+    if (block) {
+        // Clear biome/structures
+        biomeMeshes.forEach(m => { scene.remove(m); disposeMesh(m); });
+        biomeMeshes = [];
+        createBlockMesh(block);
+        document.getElementById('info-name').textContent = block.name;
+        document.getElementById('info-cat').textContent = block.category;
+        setView('block');
+    }
+}
+
+function setView(view) {
+    currentView = view;
+    document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+    if (view === 'block') {
+        document.querySelector('.tool-btn:nth-child(1)').classList.add('active');
+    } else if (view === 'biome') {
+        document.querySelector('.tool-btn:nth-child(2)').classList.add('active');
+        // Show biome list via block list
+        currentCategory = '全部';
+        const container = document.getElementById('block-list');
+        container.innerHTML = biomeData.map((b, i) => 
+            `<div class="block-item" onclick="showBiome('${b}')">
+                <div class="block-color" style="background:${getBiomeColor(b)}"></div>
+                <span>${b}</span>
+            </div>`
+        ).join('');
+    } else if (view === 'structure') {
+        document.querySelector('.tool-btn:nth-child(3)').classList.add('active');
+        const container = document.getElementById('block-list');
+        container.innerHTML = structureData.map((s, i) => 
+            `<div class="block-item" onclick="showStructure('${s}')">
+                <div class="block-color" style="background:#555"></div>
+                <span>${s}</span>
+            </div>`
+        ).join('');
+    }
+}
+
+window.showBiome = function(name) { createBiomeScene(name); };
+window.showStructure = function(name) { createStructureScene(name); };
+
+function toggleWireframe() {
+    wireframe = !wireframe;
+    scene.traverse(child => {
+        if (child.isMesh && child.material.isMeshStandardMaterial) {
+            child.material.wireframe = wireframe;
+        }
+    });
+    document.querySelectorAll('.tool-btn')[3].classList.toggle('active', wireframe);
+}
+
+function toggleGrid() {
+    showGrid = !showGrid;
+    gridHelper.visible = showGrid;
+    document.querySelectorAll('.tool-btn')[4].classList.toggle('active', !showGrid);
+}
+
+// Initialize
+renderCategoryTabs();
+renderBlockList();
+
+// Auto-select first block
+setTimeout(() => {
+    if (blockData.length > 0) {
+        window._filtered = blockData;
+        selectBlock(0, blockData[0].name);
+    }
+}, 100);
+
+// Resize handler
+function resize() {
+    const w = container.clientWidth;
+    const h = container.clientHeight;
+    camera.aspect = w / Math.max(h, 1);
+    camera.updateProjectionMatrix();
+    renderer.setSize(w, h);
+}
+window.addEventListener('resize', resize);
+resize();
+
+// Animation loop
+function animate() {
+    requestAnimationFrame(animate);
+    controls.update();
+    // Subtle star rotation
+    stars.rotation.y += 0.0001;
+    renderer.render(scene, camera);
+}
+animate();
+
+// Keyboard shortcuts
+window.addEventListener('keydown', e => {
+    if (e.key === 'f' || e.key === 'F') {
+        controls.target.set(0, 0.5, 0);
+        camera.position.set(2.5, 2, 3);
+        controls.update();
+    }
+    if (e.key === 'r' || e.key === 'R') {
+        // Reset rotation
+        controls.autoRotate = !controls.autoRotate;
+        controls.autoRotateSpeed = 2;
+    }
+});
+
+console.log('Minecraft 3D Viewer Ready -', blockData.length, 'blocks |', biomeData.length, 'biomes |', structureData.length, 'structures');
+</script>
+</body>
+</html>
