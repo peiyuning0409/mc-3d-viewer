@@ -86,10 +86,9 @@ sg.setAttribute('position',new TH.BufferAttribute(spv,3));
 const sts=new TH.Points(sg,new TH.PointsMaterial({color:'#447799',size:.02,transparent:true,opacity:.5}));
 sc.add(sts);
 let at=null;
-const ai=new Image();ai.crossOrigin='anonymous';
-ai.onload=()=>{const c=document.createElement('canvas');c.width=AW;c.height=AH;c.getContext('2d').drawImage(ai,0,0);at=new TH.CanvasTexture(c);at.colorSpace=TH.SRGBColorSpace;at.magFilter=TH.NearestFilter;at.minFilter=TH.LinearMipmapLinearFilter;at.generateMipmaps=true;document.getElementById('ld').style.display='none';mc.clear();rl();if(sn.length)sl(sn[0])};
-ai.onerror=()=>{document.getElementById('ld').textContent='纹理加载失败'};
-ai.src=AU;
+function lt(){const ld=document.getElementById('ld');ld.textContent='加载纹理中...';ld.style.display='';
+fetch(AU+'?v=3').then(r=>{if(!r.ok)throw Error(r.status);return r.blob()}).then(b=>createImageBitmap(b)).then(bm=>{const c=document.createElement('canvas');c.width=AW;c.height=AH;c.getContext('2d').drawImage(bm,0,0);at=new TH.CanvasTexture(c);at.colorSpace=TH.SRGBColorSpace;at.magFilter=TH.NearestFilter;at.minFilter=TH.LinearMipmapLinearFilter;at.generateMipmaps=true;ld.style.display='none';mc.clear();rl();if(sn.length)sl(sn[0])}).catch(e=>{console.error('纹理加载失败:',e);let retry=parseInt(ld.dataset.r||'0');if(retry<3){ld.dataset.r=retry+1;ld.textContent='纹理加载失败，重试('+(retry+1)+'/3)...';setTimeout(lt,1000*(retry+1))}else{ld.textContent='纹理加载失败，请刷新页面重试'}})}
+lt();
 const mc=new Map();
 function gm(i){if(mc.has(i))return mc.get(i);const b=BLOCKS[i];const m=new TH.MeshStandardMaterial({roughness:.5,metalness:.02});if(at){m.map=at;m.map.offset.set(b.uv[0],b.uv[1]);m.map.repeat.set(b.uv[2]-b.uv[0],b.uv[3]-b.uv[1]);m.map.wrapS=TH.ClampToEdgeWrapping;m.map.wrapT=TH.ClampToEdgeWrapping}mc.set(i,m);return m}
 let co=null;
