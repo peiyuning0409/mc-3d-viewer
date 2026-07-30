@@ -87,7 +87,7 @@ const sts=new TH.Points(sg,new TH.PointsMaterial({color:'#447799',size:.02,trans
 sc.add(sts);
 let at=null;
 const ai=new Image();ai.crossOrigin='anonymous';
-ai.onload=()=>{const c=document.createElement('canvas');c.width=AW;c.height=AH;c.getContext('2d').drawImage(ai,0,0);at=new TH.CanvasTexture(c);at.colorSpace=TH.SRGBColorSpace;at.magFilter=TH.NearestFilter;at.minFilter=TH.LinearMipmapLinearFilter;at.generateMipmaps=true;document.getElementById('ld').style.display='none';rl();if(sn.length)sl(sn[0])};
+ai.onload=()=>{const c=document.createElement('canvas');c.width=AW;c.height=AH;c.getContext('2d').drawImage(ai,0,0);at=new TH.CanvasTexture(c);at.colorSpace=TH.SRGBColorSpace;at.magFilter=TH.NearestFilter;at.minFilter=TH.LinearMipmapLinearFilter;at.generateMipmaps=true;document.getElementById('ld').style.display='none';mc.clear();rl();if(sn.length)sl(sn[0])};
 ai.onerror=()=>{document.getElementById('ld').textContent='纹理加载失败'};
 ai.src=AU;
 const mc=new Map();
